@@ -1,0 +1,11 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context="dalton.test.kakaobank.kakaobanktestjava.MainActivity">
+    <item
+        android:id="@+id/menu_search"
+        android:icon="?searchIcon"
+        android:title="@string/action_search"
+        app:actionViewClass="android.support.v7.widget.SearchView"
+        app:showAsAction="always" />
+</menu>
