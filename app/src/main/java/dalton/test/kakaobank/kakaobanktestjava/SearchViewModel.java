@@ -68,6 +68,13 @@ public class SearchViewModel extends ViewModel {
         return value != null && value.contains(entry);
     }
 
+    public String getQuery() {
+        if (meta != null) {
+            return meta.query;
+        }
+        return null;
+    }
+
     static class MetadataHolder {
         @NonNull
         private final String query;

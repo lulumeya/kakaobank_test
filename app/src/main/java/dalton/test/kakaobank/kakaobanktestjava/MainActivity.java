@@ -114,6 +114,10 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             }
         });
+        if (mViewModel.getQuery() != null) {
+            searchView.setQuery(mViewModel.getQuery(), false);
+            searchView.setIconified(false);
+        }
         return true;
     }
 
