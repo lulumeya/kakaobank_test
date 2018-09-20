@@ -17,7 +17,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 import io.reactivex.Single;
-import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import okhttp3.OkHttpClient;
@@ -27,6 +26,7 @@ import okhttp3.Response;
 public class SearchViewModel extends ViewModel {
 
     private static final String appKey = "KakaoAK b8e9e205ad25dd9adcd7073d06096de3";
+    private static final int pageSize = 30;
     private final OkHttpClient client = new OkHttpClient.Builder().build();
     private final Gson gson = new Gson();
     private final Comparator<? super SearchEntry> comparator = (Comparator<SearchEntry>) (o1, o2) -> (int) (o2.datetime.getTime() - o1.datetime.getTime());
@@ -47,7 +47,7 @@ public class SearchViewModel extends ViewModel {
         savedList.setValue(value);
     }
 
-    void unsave(SearchEntry entry) {
+    void unSave(SearchEntry entry) {
         List<SearchEntry> value = savedList.getValue();
         if (value != null) {
             value.remove(entry);
@@ -68,7 +68,6 @@ public class SearchViewModel extends ViewModel {
         boolean videoEnded;
         private int page = 1;
         private Disposable runningSubs;
-        private boolean triggerLoadMore = false;
 
         MetadataHolder(@NonNull String query) {
             this.query = query;
@@ -88,31 +87,34 @@ public class SearchViewModel extends ViewModel {
             List<Single<SearchResponse>> singles = new ArrayList<>();
             singles.add(Single.fromCallable(() -> {
                 SearchResponse response = call(createImageRequest(query.trim(), 1));
-                meta.imageEnded = response != null && response.meta.is_end;
+                meta.imageEnded = isEndOfPages(response);
                 return response;
             }));
             singles.add(Single.fromCallable(() -> {
                 SearchResponse response = call(createVideoRequest(query.trim(), 1));
-                meta.videoEnded = response != null && response.meta.is_end;
+                meta.videoEnded = isEndOfPages(response);
                 return response;
             }));
             meta.runningSubs = Single.merge(singles)
                     .subscribeOn(Schedulers.io())
                     .observeOn(Schedulers.from(singleThreadExecutor))
                     .doAfterTerminate(() -> meta.runningSubs = null)
-                    .subscribe(result -> {
-                        list.addAll(result.documents);
-
-                    }, e -> {
-                        e.printStackTrace();
-                    }, () -> {
-                        Collections.sort(list, comparator);
-                        meta.backedData.addAll(list);
-                        if (meta == this.meta) {
-                            searchResult.postValue(this.meta.backedData);
-                        }
-                    });
+                    .subscribe(
+                            result -> list.addAll(result.documents),
+                            Throwable::printStackTrace,
+                            () -> {
+                                Collections.sort(list, comparator);
+                                meta.backedData.addAll(list);
+                                if (meta == this.meta) {
+                                    searchResult.postValue(this.meta.backedData);
+                                }
+                            });
         }
+    }
+
+    private boolean isEndOfPages(SearchResponse response) {
+        return response == null || response.meta == null || response.meta.is_end || response.documents == null
+                || response.documents.isEmpty() || response.documents.size() < pageSize;
     }
 
     public void loadMore() {
@@ -127,39 +129,32 @@ public class SearchViewModel extends ViewModel {
                 if (!targetData.imageEnded) {
                     singles.add(Single.fromCallable(() -> {
                         SearchResponse response = call(createImageRequest(query.trim(), page));
-                        meta.imageEnded = response != null && response.meta.is_end;
+                        meta.imageEnded = isEndOfPages(response);
                         return response;
                     }));
                 }
                 if (!targetData.videoEnded) {
                     singles.add(Single.fromCallable(() -> {
                         SearchResponse response = call(createVideoRequest(query.trim(), page));
-                        meta.videoEnded = response != null && response.meta.is_end;
+                        meta.videoEnded = isEndOfPages(response);
                         return response;
                     }));
                 }
                 targetData.runningSubs = Single.merge(singles)
                         .subscribeOn(Schedulers.io())
                         .observeOn(Schedulers.from(singleThreadExecutor))
-                        .doAfterTerminate(() -> {
-                            targetData.runningSubs = null;
-                            if (targetData == this.meta && targetData.triggerLoadMore) {
-                                targetData.triggerLoadMore = false;
-                                AndroidSchedulers.mainThread().scheduleDirect(() -> loadMore());
-                            }
-                        })
-                        .subscribe(result -> list.addAll(result.documents), e -> {
-                            e.printStackTrace();
-                        }, () -> {
-                            Collections.sort(list, comparator);
-                            targetData.backedData.addAll(list);
-                            targetData.page += 1;
-                            if (targetData == this.meta) {
-                                searchResult.postValue(SearchViewModel.this.meta.backedData);
-                            }
-                        });
-            } else {
-                targetData.triggerLoadMore = true;
+                        .doAfterTerminate(() -> targetData.runningSubs = null)
+                        .subscribe(
+                                result -> list.addAll(result.documents),
+                                Throwable::printStackTrace,
+                                () -> {
+                                    Collections.sort(list, comparator);
+                                    targetData.backedData.addAll(list);
+                                    targetData.page += 1;
+                                    if (targetData == this.meta) {
+                                        searchResult.postValue(SearchViewModel.this.meta.backedData);
+                                    }
+                                });
             }
         }
     }
@@ -181,13 +176,13 @@ public class SearchViewModel extends ViewModel {
 
     private Request createImageRequest(String query, int page) {
         return new Request.Builder().url(String.format(Locale.ENGLISH,
-                "https://dapi.kakao.com/v2/search/image?query=%s&sort=recency&page=%d&size=15", query, page))
+                "https://dapi.kakao.com/v2/search/image?query=%s&sort=recency&page=%d&size=%d", query, page, pageSize))
                 .addHeader("Authorization", appKey).build();
     }
 
     private Request createVideoRequest(String query, int page) {
         return new Request.Builder().url(String.format(Locale.ENGLISH,
-                "https://dapi.kakao.com/v2/search/vclip?query=%s&sort=recency&page=%d&size=15", query, page))
+                "https://dapi.kakao.com/v2/search/vclip?query=%s&sort=recency&page=%d&size=%d", query, page, pageSize))
                 .addHeader("Authorization", appKey).build();
     }
 }

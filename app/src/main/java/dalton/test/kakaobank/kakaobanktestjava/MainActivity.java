@@ -84,7 +84,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void confirmDelete(SearchEntry entry) {
         new AlertDialog.Builder(MainActivity.this).setMessage("삭제하시겠습니까?")
-                .setPositiveButton("삭제", (dialog, which) -> mViewModel.unsave(entry))
+                .setPositiveButton("삭제", (dialog, which) -> mViewModel.unSave(entry))
                 .setNegativeButton("취소", null).setCancelable(true).show();
     }
 
