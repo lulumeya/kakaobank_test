@@ -117,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
         if (mViewModel.getQuery() != null) {
             searchView.setQuery(mViewModel.getQuery(), false);
             searchView.setIconified(false);
+            searchView.clearFocus();
         }
         return true;
     }
