@@ -29,7 +29,15 @@ public class SearchViewModel extends ViewModel {
     private static final int pageSize = 30;
     private final OkHttpClient client = new OkHttpClient.Builder().build();
     private final Gson gson = new Gson();
-    private final Comparator<? super SearchEntry> comparator = (Comparator<SearchEntry>) (o1, o2) -> (int) (o2.datetime.getTime() - o1.datetime.getTime());
+    private final Comparator<? super SearchEntry> comparator = (Comparator<SearchEntry>) (o1, o2) -> {
+        if (o2.datetime.after(o1.datetime)) {
+            return 1;
+        } else if (o2.datetime.before(o1.datetime)) {
+            return -1;
+        } else {
+            return 0;
+        }
+    };
     private MetadataHolder meta;
     private final Executor singleThreadExecutor = Executors.newSingleThreadExecutor();
 
@@ -103,8 +111,8 @@ public class SearchViewModel extends ViewModel {
                             result -> list.addAll(result.documents),
                             Throwable::printStackTrace,
                             () -> {
-                                Collections.sort(list, comparator);
                                 meta.backedData.addAll(list);
+                                Collections.sort(meta.backedData, comparator);
                                 if (meta == this.meta) {
                                     searchResult.postValue(this.meta.backedData);
                                 }
@@ -148,8 +156,8 @@ public class SearchViewModel extends ViewModel {
                                 result -> list.addAll(result.documents),
                                 Throwable::printStackTrace,
                                 () -> {
-                                    Collections.sort(list, comparator);
                                     targetData.backedData.addAll(list);
+                                    Collections.sort(targetData.backedData, comparator);
                                     targetData.page += 1;
                                     if (targetData == this.meta) {
                                         searchResult.postValue(SearchViewModel.this.meta.backedData);
