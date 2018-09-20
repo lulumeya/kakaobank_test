@@ -1,9 +1,7 @@
 package dalton.test.kakaobank.kakaobanktestjava;
 
-import android.arch.lifecycle.Observer;
+import android.app.AlertDialog;
 import android.arch.lifecycle.ViewModelProviders;
-import android.arch.paging.PagedList;
-import android.arch.paging.PagedListAdapter;
 import android.content.Context;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
@@ -11,7 +9,6 @@ import android.support.annotation.Nullable;
 import android.support.design.widget.TabLayout;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.util.DiffUtil;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.SearchView;
@@ -32,7 +29,6 @@ public class MainActivity extends AppCompatActivity {
 
     private TabAdapter mPagerAdapter;
     private ViewPager mViewPager;
-    private SearchView mSearchView;
     private SearchViewModel mViewModel;
     private MenuItem mSearchMenu;
 
@@ -47,7 +43,23 @@ public class MainActivity extends AppCompatActivity {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        mPagerAdapter = new TabAdapter(getApplicationContext());
+        mPagerAdapter = new TabAdapter(getApplicationContext(), v -> {
+            Object tag = v.getTag(R.id.tag_entry);
+            if (tag instanceof SearchEntry) {
+                final SearchEntry entry = (SearchEntry) tag;
+                if (mViewModel.isSaved(entry)) {
+                    confirmDelete(entry);
+                } else {
+                    confirmSave(entry);
+                }
+            }
+        }, v -> {
+            Object tag = v.getTag(R.id.tag_entry);
+            if (tag instanceof SearchEntry) {
+                final SearchEntry entry = (SearchEntry) tag;
+                confirmDelete(entry);
+            }
+        }, () -> mViewModel.loadMore());
 
         mViewPager = findViewById(R.id.container);
         mViewPager.setAdapter(mPagerAdapter);
@@ -58,19 +70,22 @@ public class MainActivity extends AppCompatActivity {
         mViewPager.addOnPageChangeListener(new TabLayout.TabLayoutOnPageChangeListener(tabLayout));
         tabLayout.addOnTabSelectedListener(new TabLayout.ViewPagerOnTabSelectedListener(mViewPager));
 
-        mViewModel.searchResult.observe(this, new Observer<PagedList<SearchResultEntry>>() {
-            @Override
-            public void onChanged(@Nullable PagedList<SearchResultEntry> searchResultEntries) {
-                mPagerAdapter.setSearchResult(searchResultEntries);
-            }
-        });
+        mViewModel.searchResult.observe(this, searchResultEntries ->
+                mPagerAdapter.setSearchResult(searchResultEntries));
 
-        mViewModel.savedList.observe(this, new Observer<List<SearchResultEntry>>() {
-            @Override
-            public void onChanged(@Nullable List<SearchResultEntry> savedList) {
-                mPagerAdapter.setSavedList(savedList);
-            }
-        });
+        mViewModel.savedList.observe(this, savedList -> mPagerAdapter.setSavedList(savedList));
+    }
+
+    private void confirmSave(SearchEntry entry) {
+        new AlertDialog.Builder(MainActivity.this).setMessage("저장하시겠습니까?")
+                .setPositiveButton("저장", (dialog, which) -> mViewModel.save(entry))
+                .setNegativeButton("취소", null).setCancelable(true).show();
+    }
+
+    private void confirmDelete(SearchEntry entry) {
+        new AlertDialog.Builder(MainActivity.this).setMessage("삭제하시겠습니까?")
+                .setPositiveButton("삭제", (dialog, which) -> mViewModel.unsave(entry))
+                .setNegativeButton("취소", null).setCancelable(true).show();
     }
 
     @Override
@@ -85,11 +100,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        mSearchView = (SearchView) mSearchMenu.getActionView();
-        mSearchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+        SearchView searchView = (SearchView) mSearchMenu.getActionView();
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
             public boolean onQueryTextSubmit(String query) {
                 mViewModel.setQuery(query);
+                searchView.clearFocus();
                 return true;
             }
 
@@ -105,51 +121,68 @@ public class MainActivity extends AppCompatActivity {
 
         private final Context context;
         private final LayoutInflater inflater;
+        private final View.OnClickListener searchClickListener;
+        private final View.OnClickListener savedClickListener;
+        private final Runnable loadMoreRunnable;
+        private List<SearchEntry> searchResult;
+        private List<SearchEntry> savedList;
 
-        public TabAdapter(Context context) {
+        TabAdapter(@NonNull Context context,
+                   @NonNull View.OnClickListener searchClickListener,
+                   @NonNull View.OnClickListener savedClickListener,
+                   @NonNull Runnable loadMoreRunnable) {
+
             this.context = context;
             this.inflater = LayoutInflater.from(context);
+            this.searchClickListener = searchClickListener;
+            this.savedClickListener = savedClickListener;
+            this.loadMoreRunnable = loadMoreRunnable;
         }
-
-        private final DiffUtil.ItemCallback<SearchResultEntry> diffCallback = new DiffUtil.ItemCallback<SearchResultEntry>() {
-            @Override
-            public boolean areItemsTheSame(SearchResultEntry oldItem, SearchResultEntry newItem) {
-                return false;
-            }
-
-            @Override
-            public boolean areContentsTheSame(SearchResultEntry oldItem, SearchResultEntry newItem) {
-                return false;
-            }
-        };
 
         @NonNull
         @Override
         public Object instantiateItem(@NonNull ViewGroup container, int position) {
             switch (position) {
-                case 0: return createRecycler(searchAdapter);
-                default: return createRecycler(savedAdapter);
+                case 0: return addRecycler(container, searchAdapter);
+                default: return addRecycler(container, savedAdapter);
             }
         }
 
         @NonNull
-        private Object createRecycler(RecyclerView.Adapter adapter) {
+        private View addRecycler(ViewGroup container, RecyclerView.Adapter adapter) {
             RecyclerView recycler = new RecyclerView(context);
             recycler.setLayoutManager(new GridLayoutManager(context, 2));
             recycler.setAdapter(adapter);
+            container.addView(recycler);
             return recycler;
         }
 
-        private final PagedListAdapter<SearchResultEntry, MyHolder> searchAdapter = new PagedListAdapter<SearchResultEntry, MyHolder>(diffCallback) {
+        private RecyclerView.Adapter searchAdapter = new RecyclerView.Adapter<MyHolder>() {
             @NonNull
             @Override
             public MyHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                return new MyHolder(inflater.inflate(R.layout.grid_item, parent, false));
+                MyHolder myHolder = new MyHolder(inflater.inflate(R.layout.grid_item, parent, false));
+                myHolder.image.setOnClickListener(searchClickListener);
+                return myHolder;
             }
 
             @Override
             public void onBindViewHolder(@NonNull MyHolder holder, int position) {
-                Picasso.get().load("http://i.imgur.com/DvpvklR.png").into(holder.image);
+                if (searchResult.size() > position) {
+                    final SearchEntry entry = searchResult.get(position);
+                    if (entry != null) {
+                        Picasso.get().load(entry.getThumbnail()).into(holder.image);
+                        holder.image.setTag(R.id.tag_entry, entry);
+                    }
+                    if (position == searchResult.size() - 1) {
+                        loadMoreRunnable.run();
+                    }
+                }
+            }
+
+            @Override
+            public int getItemCount() {
+                return searchResult != null ? searchResult.size() : 0;
             }
         };
 
@@ -157,17 +190,25 @@ public class MainActivity extends AppCompatActivity {
             @NonNull
             @Override
             public MyHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                return new MyHolder(inflater.inflate(R.layout.grid_item, parent, false));
+                MyHolder myHolder = new MyHolder(inflater.inflate(R.layout.grid_item, parent, false));
+                myHolder.image.setOnClickListener(savedClickListener);
+                return myHolder;
             }
 
             @Override
             public void onBindViewHolder(@NonNull MyHolder holder, int position) {
-                Picasso.get().load("http://i.imgur.com/DvpvklR.png").into(holder.image);
+                if (savedList.size() > position) {
+                    SearchEntry entry = savedList.get(position);
+                    if (entry != null) {
+                        Picasso.get().load(entry.getThumbnail()).into(holder.image);
+                        holder.image.setTag(R.id.tag_entry, entry);
+                    }
+                }
             }
 
             @Override
             public int getItemCount() {
-                return 0;
+                return savedList != null ? savedList.size() : 0;
             }
         };
 
@@ -195,19 +236,21 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        public void setSearchResult(PagedList<SearchResultEntry> list) {
-            searchAdapter.submitList(list);
+        void setSearchResult(List<SearchEntry> list) {
+            this.searchResult = list;
+            searchAdapter.notifyDataSetChanged();
         }
 
-        public void setSavedList(List<SearchResultEntry> savedList) {
-
+        void setSavedList(List<SearchEntry> savedList) {
+            this.savedList = savedList;
+            savedAdapter.notifyDataSetChanged();
         }
     }
 
     private static class MyHolder extends RecyclerView.ViewHolder {
         public final ImageView image;
 
-        public MyHolder(View itemView) {
+        MyHolder(View itemView) {
             super(itemView);
             image = itemView.findViewById(R.id.image);
         }
